@@ -176,6 +176,25 @@ Antes de restringir nada, verifiqué cuatro hechos leyendo `simulator.py` y `exe
 
 En ambos casos obtengo un plan de costo menor o igual a `π` dentro de mi espacio de búsqueda. Como `π` era óptimo, el plan transformado también lo es —así que existe un plan óptimo que usa exclusivamente los `DROP` que genero. No genero ningún `PICKUP` de un objeto muerto, por la razón dada en "Relevancia": ningún plan óptimo necesita recoger algo que ya no habilita nada.
 
+**`MOVE_TO`: salto directo entre zonas con algo que hacer.** No genero un `MOVE` por cada corredor adyacente. Genero un salto directo desde la zona actual hacia cada zona donde, en el estado actual, `Applicable` produciría al menos una acción no-`MOVE` (`PICKUP`, `OPEN_DOOR`, `REPAIR`, `ACTIVATE` o `RECHARGE`) — el costo es el del camino más barato entre las dos zonas usando solo corredores cuya puerta, si tienen, esté en `puertas_abiertas` en ese momento. Se apoya en el hecho 2 ya verificado: como el costo de `MOVE` no depende de nada más que el corredor, entre dos paradas donde el robot hace algo, ningún plan óptimo se beneficia de deambular — el camino más barato con las puertas abiertas de ese momento es siempre al menos tan bueno como cualquier rodeo, y las puertas no cambian a mitad de un tramo de puro viaje porque abrir una es en sí misma una parada. El camino se recalcula por estado (indexado por zona y por `puertas_abiertas`, no una tabla fija) porque abrir una puerta cambia qué corredores están disponibles. El plan que emito no ve este salto: lo reexpando en los `MOVE` de un solo corredor que lo componen, cada uno con el costo oficial de su tramo. Esto es legal porque todos los costos de corredor son no negativos: la suma parcial de cualquier prefijo de un camino es ≤ la suma total, así que si `batería ≥ costo_total_del_salto` entonces `batería ≥ costo_de_cada_tramo` en el momento en que ese tramo se ejecuta — ningún hop intermedio puede fallar por batería aunque el chequeo agregado sí haya pasado.
+
+A qué zonas exactamente salto (`zonas_de_interés`) — crucé cada condición contra lo que `Applicable` genera en cada zona, para no dejar ninguna parada útil afuera:
+
+| Condición local en esa zona | ¿Es zona de interés? |
+|---|---|
+| Llave/herramienta/material vivo en el suelo | Sí |
+| Puerta cerrada cuya llave cargo, en cualquiera de sus dos zonas | Sí |
+| Panel dañado ahí con herramienta y material cargados | Sí |
+| Estación offline ahí con sus dependencias cumplidas | Sí |
+| Cargador, si `batería < battery_max` | Sí |
+| Nada de lo anterior | No — pasar por ahí no cambia el estado, así que ningún plan la necesita como parada |
+
+No hace falta que sea "toda zona alcanzable": si una zona no ofrece nada de la tabla, detenerse ahí no tiene ningún efecto sobre el mundo, y como el costo del salto es el de Dijkstra, pasar por ella de largo hacia el verdadero destino nunca sale más caro que "parar" sin hacer nada. Si una zona sí ofrece algo, está en la tabla y por lo tanto es su propio destino directo desde donde esté el robot — nunca queda escondida dentro de un salto más largo.
+
+**`DROP` de un objeto muerto en vez de uno vivo, cuando ambos están cargados.** Cuando estoy bloqueada y entre lo que cargo hay al menos un objeto muerto cuyo peso es ≥ el peso de todo objeto vivo que también cargo, genero **solo** los `DROP` de esos muertos "seguros" — no los de los vivos. La razón: soltar cuesta lo mismo ahora mismo sin importar cuál suelte (costo plano, hecho 4), y en cualquiera de los dos casos libero exactamente un cupo — la diferencia es solo cuál objeto se queda ocupando el cupo que no se liberó. Un muerto nunca vuelve a aportar nada (por definición, y para siempre: el mundo es monótono); un vivo aporta un valor ≥ 0 (puede hacer falta después, o no, pero nunca negativo). Quedarme con el vivo en ese cupo, al mismo precio, nunca puede salir peor que quedarme con el muerto. La condición de peso es necesaria, no cosmética: si el vivo pesara más que el muerto, quedármelo en vez de soltarlo aumentaría el peso cargado de ahí en adelante, y eso podría **invalidar** —no solo encarecer— un `PICKUP` posterior que en el plan original sí pasaba. Por eso solo aplico la preferencia cuando el muerto pesa al menos lo que cada vivo cargado; si ningún muerto cumple esa condición, sigo generando también los `DROP` de los vivos, como antes.
+
+**`SWAP(x, y)`: fusionar el `DROP` con el `PICKUP` que lo obliga.** Cuando estoy bloqueada porque un objeto vivo `y` no cabe, y soltar un solo objeto `x` (de los candidatos que sobreviven la preferencia de arriba) ya libera lo que `y` necesita, genero un único sucesor que suelta `x` y recoge `y` a la vez, con costo `drop + pickup`, en vez de generar el estado intermedio "ya solté, todavía no recogí" como un nodo de búsqueda aparte. Esto no es una poda nueva: es la forma canónica que ya probé arriba — todo `DROP` óptimo se puede normalizar para caer justo antes del `PICKUP` que lo necesita, en la misma visita a la zona — llevada a su conclusión de fusionar los dos pasos en uno solo, porque nada que se intercale entre ellos depende de que estén separados: cualquier otra acción local de esa visita que no dependa de `x` o `y` se puede reordenar libremente antes o después del par, y cualquiera que sí dependa de uno de los dos ya está forzada a ir antes o después por su propia precondición. Cuando `y` pesa más de lo que cualquier `x` disponible libera por sí solo (hace falta soltar más de uno), no genero `SWAP` para ese `y` — caigo al `DROP` suelto de antes, que sigue disponible como respaldo para encadenar varios sueltos hasta que alcance. En `scenario.json` esto nunca pasa (todo pesa 1), pero el escenario es la fuente de verdad y el profesor puede variar pesos.
+
 ---
 
 ## Modelo de transición
@@ -289,16 +308,21 @@ del robot (5), el producto ya no cabe en memoria razonable ni en el tiempo de un
 
 **2. El papel de `DROP` en la explosión.** `DROP` es lo que convierte "9 objetos con una zona de origen fija" en "9 objetos que pueden terminar en cualquiera de 5 zonas". Sin `DROP` generado libremente, la posición de un objeto no recogido es fija (su zona en el escenario) y la de uno cargado es "en el payload" — dos posibilidades, no seis. `DROP` libre es exactamente el que multiplica esa dimensión por 5 (o 6, si cuento el payload) por cada objeto, y es acumulativo entre objetos porque son independientes entre sí.
 
-**3. Qué podas apliqué y por qué no pierden el óptimo.** Tres, ya
+**3. Qué podas apliqué y por qué no pierden el óptimo.** Seis, ya
 justificadas arriba con argumento de intercambio o de dominancia, no solo por intuición:
 
 - **`DROP` solo cuando bloquea un `PICKUP` necesario** (sección `Applicable` vs contrato): cualquier plan óptimo se puede transformar, sin subir su costo, en uno que solo suelta en ese momento exacto.
 - **Nunca recojo un objeto muerto** (sección Relevancia): si nada lo va a usar, su posición no puede afectar ninguna acción futura por definición del filtro de estado — recogerlo no es un error, es simplemente algo que ningún plan óptimo necesita hacer.
 - **Dominancia de batería en CLOSED**: dos rutas a la misma configuración física, la de menos batería a igual o mayor costo, nunca puede mejorar al dominante — argumento ya desarrollado arriba, incluida la objeción de `RECHARGE` sobre batería llena.
+- **`MOVE_TO` compuesto**: ningún plan óptimo se beneficia de deambular entre paradas, así que colapso el tramo de puro viaje al camino más barato entre dos zonas con algo que hacer.
+- **`DROP` de muerto antes que de vivo** (con la condición de peso): quedarme con el vivo en el cupo que dejaría libre el muerto nunca sale peor, al mismo costo.
+- **`SWAP` cuando un solo `DROP` alcanza**: fusión directa de la primera poda de esta lista, sin perder generalidad porque el `DROP` suelto sigue disponible cuando hace falta soltar más de uno.
 
-Ninguna de las tres cambia qué planes son alcanzables desde el estado
+Ninguna de las seis cambia qué planes son alcanzables desde el estado
 inicial — solo evita generar sucesores que un plan de costo mínimo no
 necesitaría, o nodos que otro ya domina.
+
+**Medido, no solo estimado.** Sobre `scenario.json`, con las tres primeras podas nada más, la búsqueda expandía 926 015 nodos entre 422 412 configuraciones físicas distintas (razón 2.19 — la batería multiplica poco, casi todo el volumen es mundo genuinamente distinto) y tardaba ~75s. Con las tres podas nuevas agregadas —`MOVE_TO`, preferencia de muerto sobre vivo, `SWAP`— eso bajó a 146 165 nodos expandidos, 68 142 configuraciones distintas (razón 2.15, se mantiene: la batería nunca fue el problema) y ~11s. La razón expandidos/configuraciones prácticamente no se movió entre una medición y otra — confirma que ninguna de las seis podas actúa sobre la batería, actúan sobre cuántos mundos físicos distintos hay que visitar, que es justo lo que argumenté arriba.
 
 **4. Por qué no es solución subir la capacidad, bajar estaciones o ignorar la batería.** Esas "soluciones" resuelven la instancia de la demo, no el problema general que el profesor va a probar: subir `cargo_capacity` puede hacer que la demo nunca necesite `DROP`, pero con más objetos u otra capacidad menor en otra instancia el problema reaparece igual de explosivo.
 Ignorar la batería quita una variable que el enunciado marca explícitamente como parte de la situación física (§2.1) — sin ella no puedo distinguir un estado donde `RECHARGE` es legal de uno donde no, ni detectar que el robot se quedó sin energía a mitad de plan; eso no poda el espacio, cambia las reglas del mundo, y el simulador seguiría exigiendo batería aunque yo la ignore internamente. Bajar estaciones cambia la meta que el profesor definió, no mi modelo. Ninguna de las tres es una poda: son formas de evitar diseñar el `Applicable` correcto, y todas fallan en cuanto cambie el escenario de
