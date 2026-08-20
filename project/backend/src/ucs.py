@@ -48,7 +48,13 @@ def _config_without_battery(state: State) -> tuple[Any, ...]:
     )
 
 
-def search(scenario: dict[str, Any], start: State) -> Node | None:
+def search(
+    scenario: dict[str, Any],
+    start: State,
+    naive: bool = False,
+    fully_naive: bool = False,
+    weight_blind: bool = False,
+) -> Node | None:
     counter = itertools.count()
     frontier: list[tuple[int, int, Node]] = [(0, next(counter), Node(start, None, None, 0))]
     closed: set[State] = set()
@@ -59,7 +65,8 @@ def search(scenario: dict[str, Any], start: State) -> Node | None:
     # dominado por alguna entrada no puede mejorar ningún plan futuro — se
     # descarta sin insertarlo. Guardo el frente completo, no solo el mejor,
     # porque dos puntos incomparables (uno más barato, otro con más batería)
-    # pueden ser necesarios los dos.
+    # pueden ser necesarios los dos. `fully_naive` la apaga entera —
+    # test_prunings_soundness.py mide contra CLOSED sin esta poda también.
     pareto: dict[tuple[Any, ...], list[tuple[int, int]]] = {}
 
     def dominated(config: tuple[Any, ...], cost: int, battery: int) -> bool:
@@ -78,14 +85,22 @@ def search(scenario: dict[str, Any], start: State) -> Node | None:
             return node
         closed.add(node.state)
 
-        for action, nxt in successors(scenario, node.state, path_cache):
+        for action, nxt in successors(
+            scenario,
+            node.state,
+            path_cache,
+            naive=naive,
+            fully_naive=fully_naive,
+            weight_blind=weight_blind,
+        ):
             if nxt in closed:
                 continue
             new_cost = cost + action.cost
-            config = _config_without_battery(nxt)
-            if dominated(config, new_cost, nxt.battery):
-                continue
-            record(config, new_cost, nxt.battery)
+            if not fully_naive:
+                config = _config_without_battery(nxt)
+                if dominated(config, new_cost, nxt.battery):
+                    continue
+                record(config, new_cost, nxt.battery)
             heapq.heappush(frontier, (new_cost, next(counter), Node(nxt, node, action, new_cost)))
 
     return None

@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "id": "mini_alternative_routes",
+    "title": "Mini — rutas alternativas al mismo resultado",
+    "description": "Dos caminos disjuntos de Z1 a Z_GOAL: por Z2 cuesta 5+5=10, por Z3 cuesta 3+3=6. Las dos llegan a la misma condición del mundo (STATION1 online). El plan óptimo va por Z3 y nunca pisa Z2. Caso 5 del enunciado. Uso interno, no es una misión para la demo visual."
+  },
+  "robot": {
+    "start": "Z1",
+    "battery_max": 50,
+    "battery_start": 50,
+    "cargo_capacity": 1
+  },
+  "zones": [
+    { "id": "Z1", "name": "START", "recharge": false },
+    { "id": "Z2", "name": "VIA_CARA", "recharge": false },
+    { "id": "Z3", "name": "VIA_BARATA", "recharge": false },
+    { "id": "Z_GOAL", "name": "GOAL", "recharge": false }
+  ],
+  "corridors": [
+    { "from": "Z1", "to": "Z2", "cost": 5, "door": null },
+    { "from": "Z2", "to": "Z1", "cost": 5, "door": null },
+    { "from": "Z2", "to": "Z_GOAL", "cost": 5, "door": null },
+    { "from": "Z_GOAL", "to": "Z2", "cost": 5, "door": null },
+    { "from": "Z1", "to": "Z3", "cost": 3, "door": null },
+    { "from": "Z3", "to": "Z1", "cost": 3, "door": null },
+    { "from": "Z3", "to": "Z_GOAL", "cost": 3, "door": null },
+    { "from": "Z_GOAL", "to": "Z3", "cost": 3, "door": null }
+  ],
+  "doors": [],
+  "keys": [],
+  "tools": [],
+  "materials": [],
+  "panels": [],
+  "stations": [
+    {
+      "id": "STATION1",
+      "kind": "generator",
+      "zone": "Z_GOAL",
+      "state": "OFFLINE",
+      "requires": { "panels_ok": [] }
+    }
+  ],
+  "chargers": [],
+  "goal": {
+    "stations_online": ["STATION1"]
+  },
+  "action_costs": {
+    "pickup": 1,
+    "drop": 1,
+    "interact": 2,
+    "recharge": 3
+  }
+}

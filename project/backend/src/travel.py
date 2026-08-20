@@ -25,6 +25,24 @@ from scenario import corridors_from, door_open, panel_ok, station_online
 from state import State
 
 
+def naive_move_successors(
+    scenario: dict[str, Any], state: State
+) -> Iterator[tuple[InternalAction, State]]:
+    # MOVE de un solo corredor, sin el salto compuesto — para el test de
+    # solidez (test_prunings_soundness.py) que compara el costo óptimo con
+    # y sin las podas opcionales. Reuso el kind "MOVE_TO" con un solo hop en
+    # `extra` para que translate.py no necesite una rama aparte.
+    for c in corridors_from(scenario, state.zone):
+        if c.get("door") and not door_open(scenario, state.doors_open, c["door"]):
+            continue
+        cost = int(c["cost"])
+        if state.battery < cost:
+            continue
+        nxt = state._replace(zone=c["to"], battery=state.battery - cost)
+        hop = ((state.zone, c["to"], cost),)
+        yield InternalAction("MOVE_TO", c["to"], hop, cost), nxt
+
+
 def zones_of_interest(scenario: dict[str, Any], state: State) -> set[str]:
     zones: set[str] = set()
     for _kid, z in state.keys_ground:

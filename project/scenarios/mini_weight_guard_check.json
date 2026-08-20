@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "id": "mini_weight_guard_check",
+    "title": "Mini — objeto muerto liviano vs objeto vivo pesado",
+    "description": "KEY1 (peso 1) muere en cuanto abre DOOR1. TOOL_H (peso 2) sigue vivo hasta reparar PANEL_H en Z3. El corredor Z3->Z2 es carísimo a propósito: volver a buscar MAT_BLOCK después de pasar por Z3 sale mucho más caro que llevárselo de una vez desde Z2, así que el plan óptimo no puede escabullirse recogiéndolo tarde. En Z2, cargando KEY1+TOOL_H (peso 3) y queriendo MAT_BLOCK (peso 2) hay que soltar 2 de peso: KEY1 sola (peso 1) no alcanza, solo TOOL_H — y en ese instante sigue vivo. Uso interno, no es una misión para la demo visual."
+  },
+  "robot": {
+    "start": "Z1",
+    "battery_max": 100,
+    "battery_start": 100,
+    "cargo_capacity": 3
+  },
+  "zones": [
+    { "id": "Z1", "name": "START", "recharge": false },
+    { "id": "Z2", "name": "MIDDLE", "recharge": false },
+    { "id": "Z3", "name": "END", "recharge": false }
+  ],
+  "corridors": [
+    { "from": "Z1", "to": "Z2", "cost": 2, "door": "DOOR1" },
+    { "from": "Z2", "to": "Z1", "cost": 2, "door": "DOOR1" },
+    { "from": "Z2", "to": "Z3", "cost": 2, "door": null },
+    { "from": "Z3", "to": "Z2", "cost": 20, "door": null }
+  ],
+  "doors": [
+    { "id": "DOOR1", "color": "cyan", "key": "KEY1", "state": "CLOSED", "between": ["Z1", "Z2"] }
+  ],
+  "keys": [
+    { "id": "KEY1", "color": "cyan", "zone": "Z1", "weight": 1 }
+  ],
+  "tools": [
+    { "id": "TOOL_H", "repairs": "H", "zone": "Z2", "weight": 2 },
+    { "id": "TOOL_X", "repairs": "BLOCK", "zone": "Z3", "weight": 1 }
+  ],
+  "materials": [
+    { "type": "BLOCK", "zone": "Z2", "count": 1, "weight": 2 },
+    { "type": "H", "zone": "Z3", "count": 1, "weight": 1 }
+  ],
+  "panels": [
+    {
+      "id": "PANEL_H",
+      "zone": "Z3",
+      "damage": "H",
+      "requires": { "tool": "TOOL_H", "material": "H" },
+      "state": "DAMAGED"
+    },
+    {
+      "id": "PANEL_X",
+      "zone": "Z3",
+      "damage": "BLOCK",
+      "requires": { "tool": "TOOL_X", "material": "BLOCK" },
+      "state": "DAMAGED"
+    }
+  ],
+  "stations": [
+    {
+      "id": "STATION_HX",
+      "kind": "generator",
+      "zone": "Z3",
+      "state": "OFFLINE",
+      "requires": { "panels_ok": ["PANEL_H", "PANEL_X"] }
+    }
+  ],
+  "chargers": [],
+  "goal": {
+    "stations_online": ["STATION_HX"]
+  },
+  "action_costs": {
+    "pickup": 1,
+    "drop": 1,
+    "interact": 2,
+    "recharge": 3
+  }
+}

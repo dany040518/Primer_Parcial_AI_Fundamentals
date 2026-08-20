@@ -52,6 +52,7 @@ def build_state(
     doors_changed: bool = True,
     panels_changed: bool = True,
     materials_recompute: bool = True,
+    relevance_filter: bool = True,
 ) -> State:
     # `doors_changed`/`panels_changed`/`materials_recompute` son una
     # optimización de implementación, no de diseño: la vivacidad de una
@@ -63,21 +64,26 @@ def build_state(
     # `successors.py` ya no agrega al suelo un objeto muerto al soltarlo (se
     # descarta ahí mismo), así que si las puertas/paneles no cambiaron, lo
     # que entra aquí ya viene filtrado.
-    if doors_changed:
+    #
+    # `relevance_filter=False` apaga el filtro por completo, no solo la
+    # repetición: es el modo `fully_naive` de test_prunings_soundness.py,
+    # que rastrea objetos muertos y material de sobra a propósito para medir
+    # contra el generador con la poda de Relevancia puesta.
+    if relevance_filter and doors_changed:
         live_keys_ground = frozenset(
             (kid, z) for kid, z in keys_ground.items() if key_is_live(scenario, kid, doors_open)
         )
     else:
         live_keys_ground = frozenset(keys_ground.items())
 
-    if panels_changed:
+    if relevance_filter and panels_changed:
         live_tools_ground = frozenset(
             (tid, z) for tid, z in tools_ground.items() if tool_is_live(scenario, tid, panels_ok)
         )
     else:
         live_tools_ground = frozenset(tools_ground.items())
 
-    if materials_recompute:
+    if relevance_filter and materials_recompute:
         ground_pairs: list[tuple[str, str, int]] = []
         material_types = {t for (t, _z) in materials_ground}
         for material_type in material_types:

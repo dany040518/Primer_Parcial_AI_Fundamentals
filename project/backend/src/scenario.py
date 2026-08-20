@@ -40,23 +40,45 @@ def material_weight(scenario: dict[str, Any], material_type: str) -> int:
 # --- doors_open/panels_ok/stations_online van como bitmask (int), no frozenset.
 # Un int se hashea y compara en O(1); con 3-20 puertas/paneles/estaciones un
 # frozenset de strings paga overhead de objeto por cada elemento para nada.
-# El índice se cachea por escenario (id() del dict) porque no cambia durante
-# una búsqueda: el mismo escenario se consulta miles de veces por segundo.
+#
+# El índice es un dato derivado del escenario: vive con él, no en un caché de
+# módulo. Un caché por `id(scenario)` era un bug real — Python reutiliza esa
+# dirección de memoria en cuanto el dict anterior se recolecta como basura,
+# así que una segunda llamada a `solve()` con OTRO escenario podía heredar el
+# índice del primero si cayó en el mismo `id()`. `/api/solve` recibe un dict
+# nuevo en cada request, así que esto pasaba en producción, no solo en un
+# test con muchos escenarios efímeros.
+#
+# `Scenario` hereda de `dict` en vez de envolverlo con `__getitem__`: así es
+# un diccionario de verdad (`isinstance(x, dict)`, `.get()`, `in`, JSON, todo
+# funciona sin reimplementar nada) con un atributo de más. `agent.solve()` lo
+# construye una vez al entrar y todo el agente lo usa de ahí en adelante —
+# cada búsqueda tiene su propio índice, sin nada compartido entre requests.
 
-_index_cache: dict[int, dict[str, dict[str, int]]] = {}
+
+def _build_index(data: dict[str, Any]) -> dict[str, dict[str, int]]:
+    return {
+        "door": {d["id"]: i for i, d in enumerate(data["doors"])},
+        "panel": {p["id"]: i for i, p in enumerate(data["panels"])},
+        "station": {s["id"]: i for i, s in enumerate(data["stations"])},
+    }
+
+
+class Scenario(dict):
+    __slots__ = ("index",)
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        super().__init__(data)
+        self.index = _build_index(self)
 
 
 def _index(scenario: dict[str, Any]) -> dict[str, dict[str, int]]:
-    cached = _index_cache.get(id(scenario))
-    if cached is not None:
-        return cached
-    idx = {
-        "door": {d["id"]: i for i, d in enumerate(scenario["doors"])},
-        "panel": {p["id"]: i for i, p in enumerate(scenario["panels"])},
-        "station": {s["id"]: i for i, s in enumerate(scenario["stations"])},
-    }
-    _index_cache[id(scenario)] = idx
-    return idx
+    # Los tests llaman a veces estas funciones con un dict pelado (sin pasar
+    # por agent.solve()): sigue funcionando, solo que sin la ventaja de
+    # calcularlo una sola vez.
+    if isinstance(scenario, Scenario):
+        return scenario.index
+    return _build_index(scenario)
 
 
 def door_open(scenario: dict[str, Any], doors_open: int, door_id: str) -> bool:
